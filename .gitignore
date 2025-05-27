@@ -1,0 +1,66 @@
+# Video files
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+*.flv
+*.wmv
+
+# Video directories
+meme_videos/
+animal_videos/
+meme_comps/
+animal_comps/
+archived_videos/
+reddit_videos/
+
+# Temporary files and directories
+temp_*/
+**/temp_*
+temp_*.mp4
+video_list_*.txt
+
+# Data and metadata files
+reddit_data/
+metadata/
+thumbnails/
+
+# XML files
+*.xml
+
+# Log files
+*.log
+
+# JSON data files and secrets
+metadata/*.json
+client_secrets.json
+token.json
+**/client_secrets.json
+**/token.json
+*.secrets
+.env
+.env.*
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Virtual environment
+venv/
+env/
+.env
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
