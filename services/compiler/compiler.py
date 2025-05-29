@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
+import sys
 import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import time
 import random
 import subprocess
@@ -8,6 +10,8 @@ import math
 import traceback
 from datetime import datetime
 from config import Config
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import Utils
 
 class Compiler:
@@ -155,12 +159,18 @@ class Compiler:
                 return False, []
             
         except subprocess.CalledProcessError as e:
-            print(f"Error running FFmpeg: {e}")
-            if hasattr(e, 'stderr'):
-                print(f"Error details: {e.stderr}")
+            error_msg = f"Error running FFmpeg: {e}"
+            if hasattr(e, 'stderr') and e.stderr:
+                error_msg += f"\nStderr: {e.stderr}"
+            if hasattr(e, 'stdout') and e.stdout:
+                error_msg += f"\nStdout: {e.stdout}"
+            print(error_msg)
+            self.logger.error(error_msg)
             return False, []
         except Exception as e:
-            print(f"Error creating compilation: {e}")
+            error_msg = f"Error creating compilation: {e}"
+            print(error_msg)
+            self.logger.error(error_msg)
             traceback.print_exc()
             return False, []
 
@@ -233,8 +243,8 @@ class Compiler:
                         remaining_meme_videos = [v for v in remaining_meme_videos if v[0] not in used_video_paths]
                         
                         # Move the file to meme_comps directory
-                        today = datetime.now().strftime("%Y-%m-%d")
-                        dest_filename = f"meme_compilation_{today}_{meme_comp_number}.mp4"
+                        timestamp_full = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                        dest_filename = f"meme_compilation_{timestamp_full}_{meme_comp_number}.mp4"
                         dest_path = os.path.join(Config.MEME_COMPS_DIR, dest_filename)
                         
                         try:
@@ -303,8 +313,8 @@ class Compiler:
                         remaining_animal_videos = [v for v in remaining_animal_videos if v[0] not in used_video_paths]
                         
                         # Move the file to animal_comps directory
-                        today = datetime.now().strftime("%Y-%m-%d")
-                        dest_filename = f"animal_compilation_{today}_{animal_comp_number}.mp4"
+                        timestamp_full = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                        dest_filename = f"animal_compilation_{timestamp_full}_{animal_comp_number}.mp4"
                         dest_path = os.path.join(Config.ANIMAL_COMPS_DIR, dest_filename)
                         
                         try:

@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  kafka:
+    build: .
+    container_name: meme-kafka
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      - PYTHONPATH=/app
+    volumes:
+      - kafka-logs:/opt/kafka/logs
+      - ./videos:/app/videos
+      - ./data:/app/data
+    command: >
+      bash -c "
+        CLUSTER_ID=$$(kafka-storage.sh random-uuid) &&
+        kafka-storage.sh format -t $$CLUSTER_ID -c /opt/kafka/config/server.properties --ignore-formatted &&
+        kafka-server-start.sh /opt/kafka/config/server.properties &
+        sleep 45 &&
+        kafka-topics.sh --create --topic meme-tasks --bootstrap-server localhost:9092 --partitions 3 --replication-factor 1 --if-not-exists &&
+        wait
+      "
+    healthcheck:
+      test: ["CMD", "kafka-topics.sh", "--list", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    networks:
+      - meme-network
+
+  orchestrator:
+    build: .
+    container_name: meme-orchestrator
+    depends_on:
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./videos:/app/videos
+      - ./data:/app/data
+    environment:
+      - PYTHONPATH=/app
+    command: python services/orchestrator/orchestrator.py --daemon
+    networks:
+      - meme-network
+
+  downloader:
+    build: .
+    container_name: meme-downloader
+    depends_on:
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./videos:/app/videos
+      - ./data:/app/data
+    environment:
+      - PYTHONPATH=/app
+    command: python services/downloader/consumer.py
+    networks:
+      - meme-network
+
+  compiler:
+    build: .
+    container_name: meme-compiler
+    depends_on:
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./videos:/app/videos
+      - ./data:/app/data
+    environment:
+      - PYTHONPATH=/app
+    command: python services/compiler/consumer.py
+    networks:
+      - meme-network
+
+volumes:
+  kafka-logs:
+
+networks:
+  meme-network:
+    driver: bridge
