@@ -20,6 +20,7 @@ services:
         kafka-server-start.sh /opt/kafka/config/server.properties &
         sleep 45 &&
         kafka-topics.sh --create --topic meme-tasks --bootstrap-server localhost:9092 --partitions 3 --replication-factor 1 --if-not-exists &&
+        kafka-topics.sh --create --topic upload-tasks --bootstrap-server localhost:9092 --partitions 3 --replication-factor 1 --if-not-exists &&
         wait
       "
     healthcheck:
@@ -75,6 +76,37 @@ services:
     command: python services/compiler/consumer.py
     networks:
       - meme-network
+
+  uploader:
+    build: .
+    container_name: meme-uploader
+    volumes:
+      - ./videos:/app/videos
+      - ./data:/app/data
+      - ./services/uploader:/app/services/uploader
+    environment:
+      - PYTHONPATH=/app
+    command: python services/uploader/uploader.py
+    networks:
+      - meme-network
+
+  upload-trigger:
+    build: .
+    container_name: meme-upload-trigger
+    depends_on:
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./videos:/app/videos
+      - ./data:/app/data
+      - ./services/uploader:/app/services/uploader
+    environment:
+      - PYTHONPATH=/app
+    command: python services/uploader/trigger_upload.py
+    networks:
+      - meme-network
+    profiles:
+      - upload
 
 volumes:
   kafka-logs:

@@ -127,7 +127,7 @@ class Compiler:
                     safe_path = video_file.replace('\\', '\\\\')
                     f.write(f"file '{safe_path}'\n")
             
-            # Run FFmpeg to concatenate the videos with original audio
+            # Run FFmpeg to concatenate the videos with aspect ratio preservation
             print(f"Creating compilation of {len(processed_videos)} videos...")
             cmd = [
                 "ffmpeg",
@@ -135,8 +135,9 @@ class Compiler:
                 "-f", "concat",
                 "-safe", "0",
                 "-i", list_file,
-                "-c:v", "copy",  # Copy video codec without re-encoding
+                "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",  # Scale to fit 1920x1080 with letterboxing
                 "-c:a", "copy",  # Copy audio codec without re-encoding
+                "-r", "30",  # Set consistent frame rate
                 output_file
             ]
             
