@@ -1,6 +1,6 @@
-# Meme Video Compilation Generator
+# Meme Video Compilation Generator (Dockerized with Kafka)
 
-A Python tool that automatically downloads Reddit videos and creates compilation videos from popular meme and animal subreddits.
+A Python application that automatically downloads Reddit videos and creates compilation videos from popular meme and animal subreddits, now containerized with Docker and using Apache Kafka for message-driven processing.
 
 ## What it does
 
@@ -8,14 +8,103 @@ A Python tool that automatically downloads Reddit videos and creates compilation
 - **Tracks duration** while downloading to hit your target compilation length
 - **Creates compilations** by splicing clips together without re-encoding
 - **Preserves original quality** and audio without modifications
+- **Uses Kafka** for decoupled, scalable message-driven processing
 
-## Features
+## Architecture
 
-- Duration-based downloading (stops when target duration is reached)
-- Filters videos by maximum clip length (currently 27 seconds)
-- Creates separate meme and animal compilations
-- Automatically archives used videos
-- Preserves original video quality with simple concatenation
+The application now uses a microservices architecture with Kafka:
+
+- **Orchestrator Service**: Sends tasks to Kafka topics (replaces run_all.py)
+- **Downloader Service**: Consumes download tasks from Kafka
+- **Compiler Service**: Consumes compilation tasks from Kafka
+- **Kafka (KRaft)**: Message broker for inter-service communication
+
+## Directory Structure
+
+```
+meme_gen/
+├── services/
+│   ├── orchestrator/           # Task orchestration
+│   ├── downloader/            # Video downloading service
+│   ├── compiler/              # Video compilation service
+│   ├── utils.py               # Shared utilities
+│   └── audio_processor.py     # Audio processing
+├── videos/                    # All video files
+│   ├── meme_videos/          # Downloaded meme videos
+│   ├── animal_videos/        # Downloaded animal videos
+│   ├── meme_comps/           # Compiled meme videos
+│   ├── animal_comps/         # Compiled animal videos
+│   └── archived_videos/      # Used videos
+├── data/                     # Data files
+│   ├── metadata/             # Video metadata
+│   ├── thumbnails/           # Video thumbnails
+│   └── reddit_data/          # Reddit API data
+├── kafka/                    # Kafka configuration
+│   └── config/               # Kafka server config
+├── docker-compose.yml        # Docker services definition
+├── Dockerfile               # Container image definition
+└── start.sh                 # Quick start script
+```
+
+## Quick Start
+
+### Using Docker (Recommended)
+
+1. **Start all services**:
+   ```bash
+   ./start.sh
+   ```
+   
+   Or manually:
+   ```bash
+   docker-compose up --build
+   ```
+
+2. **The system will automatically**:
+   - Start Kafka with KRaft mode
+   - Launch downloader and compiler consumers
+   - Run the orchestrator to send initial tasks
+
+### Custom Task Execution
+
+Send specific tasks to the system:
+
+```bash
+# Download only (5 minutes of content)
+docker-compose exec orchestrator python services/orchestrator/orchestrator.py --duration 300 --download-only
+
+# Compile only
+docker-compose exec orchestrator python services/orchestrator/orchestrator.py --duration 300 --compile-only
+
+# Full pipeline with custom settings
+docker-compose exec orchestrator python services/orchestrator/orchestrator.py --duration 600 --max-clip 30 --pad-method blur
+```
+
+### Manual Installation (Development)
+
+1. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Install system requirements**:
+   - Python 3.x
+   - FFmpeg (for video processing)
+   - Java 17+ (for Kafka)
+   - Apache Kafka
+
+3. **Run services manually**:
+   ```bash
+   # Start Kafka
+   ./kafka/setup.sh
+
+   # Start consumers (in separate terminals)
+   python services/downloader/consumer.py
+   python services/compiler/consumer.py
+
+   # Send tasks
+   python services/orchestrator/orchestrator.py --duration 300
+   ```
 
 ## Subreddits
 
@@ -31,58 +120,6 @@ A Python tool that automatically downloads Reddit videos and creates compilation
 - r/AnimalsBeingDerps
 - r/animalsdoingstuff
 
-## Requirements
-
-- Python 3.x
-- FFmpeg (for video processing)
-- yt-dlp (for downloading Reddit videos)
-
-```bash
-pip install -r requirements.txt
-```
-
-## Usage
-
-### Basic Usage
-```bash
-# Download ~60 seconds of content and create compilations
-./run_all.py --duration 60
-
-# Download ~5 minutes of content
-./run_all.py --duration 300
-
-# Download ~2 minutes of content  
-./run_all.py --duration 120
-```
-
-### Options
-```bash
-# Only download videos (don't create compilations)
-./run_all.py --download-only --duration 60
-
-# Only create compilations from already downloaded videos
-./run_all.py --compile-only --duration 60
-
-# Set maximum individual clip duration (default: 27 seconds)
-./run_all.py --duration 60 --max-clip 30
-
-# Choose aspect ratio handling method
-./run_all.py --duration 60 --pad-method letterbox  # black bars
-./run_all.py --duration 60 --pad-method blur      # blurred background
-```
-
-## How it works
-
-1. **Download Phase**: Fetches videos from Reddit subreddits randomly until target duration is reached
-2. **Compilation Phase**: Concatenates videos into compilation files using FFmpeg
-3. **Archive Phase**: Moves used videos to archive folder
-
-## Output
-
-- **Compilations**: Saved to `meme_comps/` and `animal_comps/` directories
-- **Used videos**: Moved to `archived_videos/` folder
-- **Logs**: Detailed logging to track the process
-
 ## Configuration
 
 Edit `config.py` to customize:
@@ -90,6 +127,33 @@ Edit `config.py` to customize:
 - Maximum clip duration
 - Subreddit lists
 - Directory paths
+
+## How it works
+
+1. **Orchestrator** sends download/compile messages to Kafka topics
+2. **Downloader Service** processes download messages, fetches videos from Reddit
+3. **Compiler Service** processes compile messages, creates compilation videos
+4. **All services** communicate through Kafka for scalable, fault-tolerant processing
+
+## Output
+
+- **Compilations**: Saved to `videos/meme_comps/` and `videos/animal_comps/`
+- **Used videos**: Moved to `videos/archived_videos/`
+- **Logs**: Detailed logging from each service
+
+## Docker Services
+
+- **kafka**: Kafka broker with KRaft configuration
+- **orchestrator**: Task coordination service
+- **downloader**: Video download consumer
+- **compiler**: Video compilation consumer
+
+## Benefits of Kafka Architecture
+
+- **Scalability**: Add more consumer instances to handle increased load
+- **Fault Tolerance**: Failed tasks can be retried automatically
+- **Decoupling**: Services can be developed and deployed independently
+- **Monitoring**: Track message processing through Kafka metrics
 
 ## Note
 

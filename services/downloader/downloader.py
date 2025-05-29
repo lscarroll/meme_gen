@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
+import sys
 import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import time
 import random
 import subprocess
@@ -9,12 +11,54 @@ import xml.etree.ElementTree as ET
 from urllib.parse import urlparse
 from tqdm import tqdm
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
+import json
+from kafka import KafkaProducer
+from kafka.errors import KafkaError
 from config import Config
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import Utils
 
 class Downloader:
     def __init__(self, logger):
         self.logger = logger
+        self.producer = None
+        self.setup_kafka_producer()
+
+    def setup_kafka_producer(self):
+        """Setup Kafka producer for sending compilation triggers"""
+        try:
+            self.producer = KafkaProducer(
+                bootstrap_servers=['kafka:9092'],
+                value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+                api_version=(2, 8)
+            )
+            self.logger.info("Kafka producer connected successfully")
+        except Exception as e:
+            self.logger.warning(f"Failed to setup Kafka producer: {e}")
+            self.producer = None
+
+    def trigger_compilation(self, target_duration):
+        """Send compilation task to Kafka"""
+        if not self.producer:
+            self.logger.warning("Kafka producer not available, skipping compilation trigger")
+            return False
+            
+        try:
+            message = {
+                'task': 'compile',
+                'duration': target_duration,
+                'pad_method': 'letterbox',
+                'timestamp': time.time()
+            }
+            
+            future = self.producer.send('meme-tasks', value=message)
+            result = future.get(timeout=10)
+            self.logger.info(f"Compilation task sent: {message}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to send compilation task: {e}")
+            return False
 
     def download_file(self, url, directory="downloads", filename=None):
         """Download a file from a URL and save it to the specified directory."""
@@ -258,11 +302,11 @@ class Downloader:
 
     def download_videos(self, max_clip_duration=None, target_duration=None):
         """
-        Download videos from Reddit and save metadata
+        Download videos from Reddit continuously, triggering compilations when target duration is reached
         
         Args:
             max_clip_duration: Maximum duration for individual clips in seconds
-            target_duration: Target total duration to download (stops downloading when reached)
+            target_duration: Target total duration for each compilation batch
         """
         if max_clip_duration is None:
             max_clip_duration = Config.MAX_CLIP_DURATION
@@ -386,15 +430,26 @@ class Downloader:
             max_failed_attempts = 10  # Stop after 10 consecutive videos that don't fit
             
             for subreddit, entry_index in meme_subreddits_with_entries:
-                # Stop if we've reached the target duration or are very close (within 5 seconds)
-                if total_meme_duration >= target_duration - 5:
-                    self.logger.info(f"Reached near target meme duration ({total_meme_duration:.2f}s out of {target_duration}s). Stopping meme downloads.")
-                    break
+                # Check if we've reached the target duration - trigger compilation and reset
+                if total_meme_duration >= target_duration:
+                    self.logger.info(f"Reached target meme duration ({total_meme_duration:.2f}s). Triggering compilation and continuing downloads.")
+                    
+                    # Save current metadata
+                    Utils.save_video_metadata(all_meme_videos, all_animal_videos)
+                    
+                    # Trigger compilation
+                    self.trigger_compilation(target_duration)
+                    
+                    # Reset counters for next batch (but keep any leftover animal videos)
+                    all_meme_videos = []
+                    total_meme_duration = 0
+                    failed_attempts = 0
                 
-                # Stop if we've had too many failed attempts to find videos that fit
+                # Skip if we've had too many failed attempts to find videos that fit (but continue processing)
                 if failed_attempts >= max_failed_attempts:
-                    self.logger.info(f"Too many videos don't fit in remaining duration. Stopping meme downloads.")
-                    break
+                    self.logger.info(f"Too many consecutive videos don't fit. Skipping ahead in meme downloads.")
+                    failed_attempts = 0  # Reset to try again
+                    continue
                 
                 try:
                     # Get the specific entry
@@ -441,11 +496,16 @@ class Downloader:
                             
                             # Check if adding this video would exceed the target duration
                             if total_meme_duration + duration > target_duration:
-                                self.logger.info(f"Adding this video would exceed target duration, removing: {title}")
-                                if os.path.exists(video_path):
-                                    os.remove(video_path)
-                                failed_attempts += 1
-                                continue
+                                self.logger.info(f"Adding this video would exceed target duration. Triggering compilation first.")
+                                
+                                # Save current metadata and trigger compilation
+                                Utils.save_video_metadata(all_meme_videos, all_animal_videos)
+                                self.trigger_compilation(target_duration)
+                                
+                                # Reset for next batch and add this video to the new batch
+                                all_meme_videos = []
+                                total_meme_duration = 0
+                                failed_attempts = 0
                             
                             # Add this video to our collection
                             all_meme_videos.append((video_path, duration, subreddit))
@@ -466,15 +526,26 @@ class Downloader:
             max_failed_attempts = 10  # Stop after 10 consecutive videos that don't fit
             
             for subreddit, entry_index in animal_subreddits_with_entries:
-                # Stop if we've reached the target duration or are very close (within 5 seconds)
-                if total_animal_duration >= target_duration - 5:
-                    self.logger.info(f"Reached near target animal duration ({total_animal_duration:.2f}s out of {target_duration}s). Stopping animal downloads.")
-                    break
+                # Check if we've reached the target duration - trigger compilation and reset
+                if total_animal_duration >= target_duration:
+                    self.logger.info(f"Reached target animal duration ({total_animal_duration:.2f}s). Triggering compilation and continuing downloads.")
+                    
+                    # Save current metadata
+                    Utils.save_video_metadata(all_meme_videos, all_animal_videos)
+                    
+                    # Trigger compilation
+                    self.trigger_compilation(target_duration)
+                    
+                    # Reset counters for next batch (but keep any leftover meme videos)
+                    all_animal_videos = []
+                    total_animal_duration = 0
+                    failed_attempts = 0
                 
-                # Stop if we've had too many failed attempts to find videos that fit
+                # Skip if we've had too many failed attempts to find videos that fit (but continue processing)
                 if failed_attempts >= max_failed_attempts:
-                    self.logger.info(f"Too many videos don't fit in remaining duration. Stopping animal downloads.")
-                    break
+                    self.logger.info(f"Too many consecutive videos don't fit. Skipping ahead in animal downloads.")
+                    failed_attempts = 0  # Reset to try again
+                    continue
                 
                 try:
                     # Get the specific entry
@@ -521,11 +592,16 @@ class Downloader:
                             
                             # Check if adding this video would exceed the target duration
                             if total_animal_duration + duration > target_duration:
-                                self.logger.info(f"Adding this video would exceed target duration, removing: {title}")
-                                if os.path.exists(video_path):
-                                    os.remove(video_path)
-                                failed_attempts += 1
-                                continue
+                                self.logger.info(f"Adding this video would exceed target duration. Triggering compilation first.")
+                                
+                                # Save current metadata and trigger compilation
+                                Utils.save_video_metadata(all_meme_videos, all_animal_videos)
+                                self.trigger_compilation(target_duration)
+                                
+                                # Reset for next batch and add this video to the new batch
+                                all_animal_videos = []
+                                total_animal_duration = 0
+                                failed_attempts = 0
                             
                             # Add this video to our collection
                             all_animal_videos.append((video_path, duration, subreddit))
@@ -540,11 +616,25 @@ class Downloader:
                 except Exception as e:
                     self.logger.error(f"Error processing entry from r/{subreddit}: {e}")
             
-            self.logger.info(f"Total meme videos downloaded: {len(all_meme_videos)} with duration {total_meme_duration:.2f}s")
-            self.logger.info(f"Total animal videos downloaded: {len(all_animal_videos)} with duration {total_animal_duration:.2f}s")
+            self.logger.info(f"Finished processing all RSS entries.")
+            self.logger.info(f"Remaining meme videos: {len(all_meme_videos)} with duration {total_meme_duration:.2f}s")
+            self.logger.info(f"Remaining animal videos: {len(all_animal_videos)} with duration {total_animal_duration:.2f}s")
             
-            # Save metadata for compilation generator to use
-            Utils.save_video_metadata(all_meme_videos, all_animal_videos)
+            # Save metadata for any remaining videos
+            if all_meme_videos or all_animal_videos:
+                Utils.save_video_metadata(all_meme_videos, all_animal_videos)
+                
+                # If we have sufficient content for a final compilation, trigger it
+                min_duration = target_duration * 0.3  # 30% of target duration minimum
+                if (total_meme_duration >= min_duration or total_animal_duration >= min_duration):
+                    self.logger.info(f"Triggering final compilation for remaining videos")
+                    self.trigger_compilation(target_duration)
+                else:
+                    self.logger.info(f"Not enough content for final compilation (need {min_duration:.1f}s minimum)")
+            
+            # Clean up Kafka producer
+            if self.producer:
+                self.producer.close()
             
             return all_meme_videos, all_animal_videos
             

@@ -1,7 +1,8 @@
 requests>=2.25.1
 tqdm>=4.61.0
-tqdm>=4.61.0
 yt-dlp>=2022.3.8
 google-api-python-client>=2.70.0
 google-auth-oauthlib>=1.0.0
 google-auth-httplib2>=0.1.0
+kafka-python>=2.0.2
+tenacity>=8.0.0
