@@ -108,6 +108,23 @@ services:
     profiles:
       - upload
 
+  api:
+    build: .
+    container_name: meme-api
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./videos:/app/videos
+      - ./data:/app/data
+    environment:
+      - PYTHONPATH=/app
+    command: python services/api/api_server.py
+    networks:
+      - meme-network
+
 volumes:
   kafka-logs:
 
